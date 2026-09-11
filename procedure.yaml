@@ -1,0 +1,109 @@
+name: Magnetorquer Dipole Moment Test
+version: 0.1.0
+description: Acceptance of a 1 A·m² torque rod in a Helmholtz cage. Cage residual and rod marking in setup, coil resistance and 500 V insulation, a current sweep from -150 to +150 mA with the axial field converted to dipole through the on-axis law and judged on the value at rated current, the straightness, the gain and the polarity, then the remanent dipole with the current cut.
+
+unit:
+  auto_identify: true
+  serial_number:
+    description: "Scan the rod's label"
+    placeholder: "MTQ-1-0000"
+    pattern: "^MTQ-1-\\d{4}$"
+    default_value: "MTQ-1-0416"
+  part_number:
+    default_value: "MTQ-1-5V"
+  batch_number:
+    default_value: "LOT-2026-09"
+
+plugs:
+  - name: Torquer Bench
+    description: "Helmholtz cage, fluxgate on the rod's axis, coil current source, micro-ohm meter, insulation tester (mock, one plug per bench)"
+    python: plugs.torquer_bench:TorquerBench
+    key: bench
+
+setup:
+  - name: Identify
+    key: identify
+    python: phases.identify
+    measurements:
+      - name: Rod Marking
+        key: rod_marking
+        validators:
+          - {operator: matches, expected_value: "^MTQ-1-[XYZ]$"}
+      - name: Cage Residual
+        key: cage_residual_nt
+        unit: nT
+        description: Field left at the sensor with the cage nulling and the rod unpowered; the floor of every dipole number below.
+        validators:
+          - {operator: "<=", expected_value: 50.0}
+
+main:
+  - name: Electrical
+    key: electrical
+    python: phases.electrical
+    measurements:
+      - name: Coil Resistance
+        key: coil_resistance_ohm
+        unit: Ω
+        validators:
+          - {operator: ">=", expected_value: 31.35}
+          - {operator: "<=", expected_value: 34.65}
+      - name: Insulation
+        key: insulation_mohm
+        unit: MΩ
+        validators:
+          - {operator: ">=", expected_value: 100.0}
+
+  - name: Dipole Sweep
+    key: dipole_sweep
+    python: phases.dipole_sweep
+    depends_on: [electrical]
+    timeout: 10m
+    measurements:
+      - name: Sweep
+        key: sweep
+        title: Dipole moment against coil current, -150 to +150 mA
+        x_axis:
+          legend: Current
+          unit: A
+        y_axis:
+          - legend: Dipole
+            key: dipole
+            unit: A·m²
+            aggregations:
+              - type: at_rated_am2
+                unit: A·m²
+                validators:
+                  - {operator: ">=", expected_value: 0.95}
+              - type: gain_am2_per_a
+                unit: A·m²/A
+                validators:
+                  - {operator: ">=", expected_value: 6.3}
+              - type: linearity_pct
+                unit: "%"
+                validators:
+                  - {operator: "<=", expected_value: 2.0}
+      - name: Polarity
+        key: polarity
+        description: Sign of the moment at positive current against the rod's +X marking; a rod wired backwards passes every other number.
+        validators:
+          - {operator: "==", expected_value: "+X"}
+
+  - name: Residual
+    key: residual
+    python: phases.residual
+    depends_on: [dipole_sweep]
+    measurements:
+      - name: Residual Dipole
+        key: residual_am2
+        unit: A·m²
+        validators:
+          - {operator: "<=", expected_value: 0.010}
+
+teardown:
+  - name: Power Off
+    key: power_off
+    python: phases.power_off
+    measurements:
+      - name: Field After
+        key: field_after_nt
+        unit: nT
